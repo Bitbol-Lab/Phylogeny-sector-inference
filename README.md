@@ -9,7 +9,7 @@ git clone git@github.com:Bitbol-Lab/Phylogeny-sector-inference.git
 and move inside the root folder.
 
 ### 2 states
-The binary_states folder contains two scripts to generate sequences. First, ```Sectors_equilibrium.py``` allows to generate independent sequences at equilibrium. Second, ```Phylogeny_sectors.py``` allows to generate sequences with phylogeny. Note that an equilibrium dataset is needed to generate sequences with phylogeny because an equilibrium sequence is taken as the root of the phylogeny. 
+The binary_states folder contains four scripts to generate sequences. First, ```Sectors_equilibrium.py``` allows to generate independent sequences at equilibrium. Second, ```Phylogeny_sectors.py``` allows to generate sequences with phylogeny. Note that an equilibrium dataset is needed to generate sequences with phylogeny because an equilibrium sequence is taken as the root of the phylogeny. 
 Third, ```Phylogeny_sectors_savephylogeny.py``` allows to generate sequences with phylogeny and save the whole phylogeny. Finally, ```PurePhylogenyNoselection_sectors.py``` allows to generate sequences with only phylogeny and no selection. 
 
 The ```Analyze_sectors_binarydata.py``` allows to infer sectors using ICOD, covariance, SCA or conservation on the example data stored in the "example_generated_data" folder. The same script reproduces the figures with the same results as in the article. The results are stored in the "results" folder. The necessary functions are in the main and can be commented if not needed. For SCA, we used the the ```pySCA``` github package (https://github.com/reynoldsk/pySCA).
