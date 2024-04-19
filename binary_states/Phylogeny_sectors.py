@@ -1,0 +1,339 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Apr  1 09:04:42 2021
+Phylogeny sectors
+"""
+
+import sys
+import os
+import numpy as np
+import random
+
+import time
+# set seed
+seed = 12
+random.seed(seed)
+
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+from math import exp, expm1
+from datetime import datetime, date
+import h5py
+startTime = datetime.now()
+today = date.today()
+from numba import jit
+
+def OpenTempFile(path,paramkey,paramvalue,idxc):
+    file = h5py.File(path,'r')
+    sequences = np.array(file['Chains'])
+    parameters= np.array(file[paramkey])
+    idx = np.where(parameters == paramvalue)
+    file.close()
+
+    return sequences[idx,idxc,:][0,0,:].copy()
+        
+
+def GenerateDeltaNormal(average_sector,average_nonsector, variance_sector,variance_nonsector, number_spins, number_components_sector):
+    
+    delta = np.zeros(number_spins)
+    
+    delta[0:number_components_sector] = np.random.normal(average_sector,variance_sector,number_components_sector)
+    delta[number_components_sector:number_spins] = np.random.normal(average_nonsector,variance_nonsector,number_spins - number_components_sector)
+    
+    return delta
+
+@jit(nopython=True, fastmath = True)#vectorize
+def ComputeFitness(sequence,delta,alpha,kappa):
+    
+    return -kappa/2 * (-alpha + np.sum(sequence*delta))**2
+    
+@jit(nopython=True)
+def MCEvolution(sequence, delta, alpha, kappa,number_accepted_flips, number_spins):
+            
+    energy = -ComputeFitness(sequence,delta,alpha,kappa)
+    
+    
+    counter = 0
+    while(counter < number_accepted_flips):
+
+        rand_site = random.randrange(0,number_spins,1)
+        deltaE = - 2*kappa * delta[rand_site]*sequence[rand_site]*((np.sum(delta*sequence)-delta[rand_site]*sequence[rand_site]) - alpha)
+
+        if deltaE < 0:
+            
+            energy += deltaE
+            sequence[rand_site] *= -1
+
+            counter += 1
+
+        
+        elif random.uniform(0,1) <  np.exp(-deltaE):
+
+            energy += deltaE
+            sequence[rand_site] *= -1
+            
+            counter += 1
+
+    return sequence
+
+def Generate_tree(nbr_gen):
+    tree = {}
+    for g in range(0,nbr_gen+1):
+        list_children = np.linspace(1,pow(2,g),pow(2,g), dtype = np.int16)
+        for child in list(list_children):
+            tree['{}/{}'.format(g,child)] = None
+    return tree
+
+def Run1Tree(number_generations,number_spins,delta, alpha, kappa,number_mutations,indexc,kappaprime,paramkey,paramvalue,pathtoEQ):
+
+    
+    Tree = Generate_tree(number_generations)
+
+    starting_chain = OpenTempFile(pathtoEQ,paramkey,paramvalue,indexc)
+
+    Tree['0/1'] = starting_chain
+    
+    for g in range(1,number_generations+1):
+        
+        list_parents = np.linspace(1,pow(2,g-1),pow(2,g-1), dtype = np.int16)
+
+        for parent in list_parents:
+
+            chain = Tree['{}/{}'.format(g-1,parent)]
+            
+            newchain1 = MCEvolution(chain.copy(), delta, alpha, kappa,number_mutations, number_spins)
+            newchain2 = MCEvolution(chain.copy(),delta, alpha, kappa,number_mutations, number_spins)
+
+
+            
+            Tree['{}/{}'.format(g,2*parent-1)] = newchain1
+            Tree['{}/{}'.format(g,2*parent)] = newchain2
+            
+    final_chains = np.zeros([pow(2,number_generations),number_spins],dtype = np.int8)
+    
+    for index_chain, child in enumerate(list(np.linspace(1,pow(2,number_generations),pow(2,number_generations),dtype = np.int16))):
+        final_chains[index_chain,:] = Tree['{}/{}'.format(number_generations,child)]
+    
+    return final_chains
+    
+    
+
+if __name__ == '__main__':
+        
+
+###############################################################################    
+##  GENERATE SEQUENCES WITH PHYLOGENY FIXED KAPPA & ALPHA -> VARY MU
+###############################################################################    
+  
+    
+    # number_spins = 200
+    # number_accepted_flips = 3000
+
+    # average_sector = 5; variance_sector = 0.25
+    # average_nonsector = 0.5; variance_nonsector = 0.25
+    # number_components_sector = 20
+    
+    # # delta = GenerateDeltaNormal(average_sector,average_nonsector, variance_sector,variance_nonsector, number_spins, number_components_sector)
+    # delta = np.load('./vector_mut_effects_2states/delta.npy')
+    
+    # pathtoEQfile = './example_generated_data/EQ_K40_alpham300_300/2022_12_06_18_54_13_Sectors_nspins200_flips3000_nseq2048_seed_76_deltanormal_Alphamin-300_Alphamax300_K40_realnbr0.h5'
+    # idxs_chainseq = np.linspace(0,2047,2048)
+    # np.random.shuffle(idxs_chainseq)
+    # paramkeyeq = 'Alpha2'
+    # paramvalue = 90
+
+    # number_realisations = 100
+    # number_mutations = np.linspace(1,50,50)
+
+    # for real in tqdm(range(0,number_realisations)):
+    #         indexc = 0
+    #         number_generations = 11
+   
+    #         alpha = 90
+
+    #         kappaprime = 10
+    #         kappa = kappaprime/np.dot(delta,delta)
+            
+    #         date = today.strftime("%Y_%m_%d_")
+    #         hour = startTime.strftime('%H_%M_%S_')
+
+    #         path = './example_generated_data/phylogeny_K10_alpha90_M1_50/'
+      
+    #         if not os.path.exists(path):
+    #             os.makedirs(path)
+            
+    #         filename = path+date+hour+'Sectors_nspins{}_flips{}_seed_{}_deltanormal_kappaprime{}_alpha{}_G{}_realnbr{}.h5'.format(number_spins, number_accepted_flips,seed,int(kappaprime),int(alpha),number_generations,real)
+    #         file = h5py.File(filename, 'w')
+            
+            
+    #         para = [number_spins, number_accepted_flips,number_components_sector, average_sector, variance_sector,average_nonsector,variance_nonsector, seed,kappa,kappaprime,alpha,number_generations]
+            
+    #         file.create_dataset('Parameters', data = np.array(para))
+    #         file.create_dataset('Delta', data = delta)
+    #         file.close()
+            
+    #         finalchains = np.zeros((number_mutations.shape[0],pow(2,number_generations),number_spins))
+            
+    #         for idxm,nbrmutations in enumerate(number_mutations):
+    #             chains_lastg = Run1Tree(number_generations,number_spins,delta,alpha, kappa,nbrmutations,int(idxs_chainseq[indexc]),kappaprime,paramkeyeq,paramvalue,pathtoEQfile)
+    #             indexc+=1
+    #             finalchains[idxm,:,:] = chains_lastg.copy()
+            
+    #         file = h5py.File(filename, 'r+')
+
+    #         file.create_dataset('Chains', data = finalchains, dtype = np.int8)
+    #         file.create_dataset('Kappa', data = np.array(kappaprime))
+    #         file.create_dataset('Alpha', data = np.array(alpha))
+    #         file.create_dataset('Mutations', data = np.array(number_mutations))
+    #         file.create_dataset('NumberGenerations', data = np.array(number_generations))
+                    
+    #         file.create_dataset('NumberSequences', data = np.array(pow(2,number_generations)))
+    #         file.create_dataset('NumberSpins', data = np.array(number_spins))
+    #         file.create_dataset('NumberFlips', data = np.array(number_accepted_flips))
+    #         file.close()
+            
+            
+###############################################################################    
+##  GENERATE SEQUENCES WITH PHYLOGENY FIXED MU & ALPHA -> VARY KAPPA
+###############################################################################    
+
+    # number_spins = 200
+    
+    # number_accepted_flips = 3000
+
+    # average_sector = 5; variance_sector = 0.25
+    # average_nonsector = 0.5; variance_nonsector = 0.25
+    # number_components_sector = 20
+    
+    # # delta = GenerateDeltaNormal(average_sector,average_nonsector, variance_sector,variance_nonsector, number_spins, number_components_sector)
+    # delta = np.load('./vector_mut_effects_2states/delta.npy')
+    
+    
+    # pathtoEQfile = './example_generated_data/EQ_K1_100_alpha90/2022_12_06_17_45_12_Sectors_nspins200_flips3000_nseq2048_seed_76_deltanormal_Kmin1_Kmax100_alpha0_realnbr0.h5'
+    # idxs_chainseq = np.linspace(0,2047,2048)
+    # np.random.shuffle(idxs_chainseq)
+    # paramkeyeq = 'Kappa'
+
+    
+    # kappaprimes = np.array([1,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100])/4
+    
+    
+    # number_realisations = 10
+    # number_mutations = 5
+
+    # for real in tqdm(range(0,number_realisations)):
+    #         indexc = 0
+    #         number_generations = 11
+    #         alpha = 90
+
+    #         date = today.strftime("%Y_%m_%d_")
+    #         hour = startTime.strftime('%H_%M_%S_')
+
+    #         path = './example_generated_data/phylogeny_K1_100_alpha90_M5/'
+
+    #         if not os.path.exists(path):
+    #             os.makedirs(path)
+            
+    #         filename = path+date+hour+'Sectors_nspins{}_flips{}_seed_{}_deltanormal_M{}_alpha{}_G{}_realnbr{}.h5'.format(number_spins, number_accepted_flips,seed,int(number_mutations),int(alpha),number_generations,real)
+    #         file = h5py.File(filename, 'w')
+            
+            
+    #         para = [number_spins, number_accepted_flips,number_components_sector, average_sector, variance_sector,average_nonsector,variance_nonsector, seed,number_mutations,alpha,number_generations]
+            
+    #         file.create_dataset('Parameters', data = np.array(para))
+    #         file.create_dataset('Delta', data = delta)
+    #         file.close()
+            
+    #         finalchains = np.zeros((kappaprimes.shape[0],pow(2,number_generations),number_spins))
+            
+    #         for idxk,kappaprime in enumerate(kappaprimes):
+
+    #             kappa = kappaprime/np.dot(delta,delta)
+                
+    #             chains_lastg = Run1Tree(number_generations,number_spins,delta, alpha, kappa,number_mutations,int(idxs_chainseq[indexc]),kappaprime,paramkeyeq,kappaprime,pathtoEQfile)
+    #             indexc+=1
+    #             finalchains[idxk,:,:] = chains_lastg.copy()
+            
+    #         file = h5py.File(filename, 'r+')
+    #         file.create_dataset('Chains', data = finalchains, dtype = np.int8)
+    #         file.create_dataset('Kappa', data = np.array(kappaprimes))
+    #         file.create_dataset('Alpha', data = np.array(alpha))
+    #         file.create_dataset('Mutations', data = np.array(number_mutations))
+    #         file.create_dataset('NumberGenerations', data = np.array(number_generations))
+                    
+    #         file.create_dataset('NumberSequences', data = np.array(pow(2,number_generations)))
+    #         file.create_dataset('NumberSpins', data = np.array(number_spins))
+    #         file.create_dataset('NumberFlips', data = np.array(number_accepted_flips))
+    #         file.close()
+            
+    
+###############################################################################    
+##  GENERATE SEQUENCES WITH PHYLOGENY FIXED MU & KAPPA -> VARY ALPHA
+###############################################################################    
+     
+    number_spins = 200
+                        
+    number_accepted_flips = 3000
+
+    average_sector = 5; variance_sector = 0.25
+    average_nonsector = 0.5; variance_nonsector = 0.25
+    number_components_sector = 20
+    
+    # delta = GenerateDeltaNormal(average_sector,average_nonsector, variance_sector,variance_nonsector, number_spins, number_components_sector)
+    delta = np.load('./vector_mut_effects_2states/delta.npy')
+    
+    pathtoEQfile = './example_generated_data/EQ_K10_alpham300_300_10real/2024_04_19_10_49_30_Sectors_nspins200_flips3000_nseq2048_seed_34_Alphamin-300_Alphamax300_K10_realnbr0.h5'
+    idxs_chainseq = np.linspace(0,2047,2048)
+    np.random.shuffle(idxs_chainseq)
+    paramkeyeq = 'Alpha'
+
+    alphas = np.linspace(-300,300,41)
+    number_realisations = 10
+    number_mutations = 5
+
+    for real in tqdm(range(0,number_realisations)):
+            indexc = 0
+            number_generations = 11
+            correction_term_spin = 0.5*np.sum(delta)
+        
+            kappaprime = 10
+            kappa = kappaprime/np.dot(delta,delta)  
+            
+            date = today.strftime("%Y_%m_%d_")
+            hour = startTime.strftime('%H_%M_%S_')
+
+            path = './example_generated_data/phylogeny_Alpham300_300_K10_M5/'
+
+            if not os.path.exists(path):
+                os.makedirs(path)
+            
+            filename = path+date+hour+'Sectors_nspins{}_flips{}_seed_{}_deltanormal_M{}_Kappa{}_G{}_realnbr{}.h5'.format(number_spins, number_accepted_flips,seed,int(number_mutations),int(kappaprime),number_generations,real)
+            file = h5py.File(filename, 'w')
+            
+            para = [number_spins, number_accepted_flips,number_components_sector, average_sector, variance_sector,average_nonsector,variance_nonsector, seed,number_mutations,kappaprime,number_generations]
+            
+            file.create_dataset('Parameters', data = np.array(para))
+            file.create_dataset('Delta', data = delta)
+            file.close()
+            
+            finalchains = np.zeros((alphas.shape[0],pow(2,number_generations),number_spins))
+            
+            for idxa,alpha in enumerate(alphas):
+
+                chains_lastg = Run1Tree(number_generations,number_spins,delta, alpha, kappa,number_mutations,int(idxs_chainseq[indexc]),kappaprime,paramkeyeq,alpha,pathtoEQfile)
+                indexc+=1
+                finalchains[idxa,:,:] = chains_lastg.copy()
+            
+            file = h5py.File(filename, 'r+')
+            file.create_dataset('Chains', data = finalchains, dtype = np.int8)
+            file.create_dataset('Kappa', data = np.array(kappaprime))
+            file.create_dataset('Alpha', data = np.array(alphas))
+            file.create_dataset('Mutations', data = np.array(number_mutations))
+            file.create_dataset('NumberGenerations', data = np.array(number_generations))
+                    
+            file.create_dataset('NumberSequences', data = np.array(pow(2,number_generations)))
+            file.create_dataset('NumberSpins', data = np.array(number_spins))
+            file.create_dataset('NumberFlips', data = np.array(number_accepted_flips))
+            file.close()
+            
